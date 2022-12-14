@@ -419,7 +419,7 @@ struct maze_graphic {
 			this->create(maze);
 		}
 
-		constexpr auto colors = std::array{ qpl::rgb(40, 40, 40), qpl::rgb(100, 100, 100) };
+		constexpr auto colors = std::array{ qpl::rgb(140, 140, 140), qpl::rgb(20, 20, 20) };
 		for (auto [x, y] : this->dimension.list_possibilities_range()) {
 
 			auto& b = this->before.cells[y][x];
@@ -460,10 +460,13 @@ struct maze_graphic {
 
 struct main_state : qsf::base_state {
 	void randomize() {
-		for (auto& i : this->maze.cells) {
-			for (auto& i : i) {
-				i = qpl::random_b(0.3) ? 1 : 0;
-			}
+
+		qpl::perlin_noise perlin;
+		perlin.set_seed_random();
+
+		for (auto [x, y] : this->maze.dimension.list_possibilities_range()) {
+			auto value = perlin.get(qpl::vec(x, y), 0.1, 4);
+			this->maze.cells[y][x] = value < 0.45 ? 1 : 0;
 		}
 	}
 
@@ -487,12 +490,25 @@ struct main_state : qsf::base_state {
 		this->update(this->view);
 
 		if (this->event().key_holding(sf::Keyboard::Space)) {
-			for (qpl::size i = 0; i < 100; ++i) {
+			for (qpl::size i = 0; i < qpl::size_cast(this->steps); ++i) {
 				this->bfs.step(this->maze.cells, { 0, 0 }, this->maze_size - 1);
 			}
 			this->maze_graphic.add_path(this->bfs.path);
+
+			if (this->lock) {
+				this->view.set_center(this->bfs.path.back() * maze_graphic::cell_dim);
+			}
 		}
-		if (this->event().key_single_pressed(sf::Keyboard::R)) {
+		if (this->event().key_pressed(sf::Keyboard::A)) {
+			this->steps *= 0.75;
+		}
+		else if (this->event().key_pressed(sf::Keyboard::D)) {
+			this->steps *= (4.0 / 3);
+		}
+		else if (this->event().key_single_pressed(sf::Keyboard::L)) {
+			this->lock = !this->lock;
+		}
+		else if (this->event().key_single_pressed(sf::Keyboard::R)) {
 			this->randomize();
 			this->bfs.reset();
 			this->bfs.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 1);
@@ -507,8 +523,9 @@ struct main_state : qsf::base_state {
 	maze maze;
 	maze_graphic maze_graphic;
 	qsf::view_rectangle view;
-	astar_visualized<qpl::size, false> bfs;
-	//bfs_visualized<qpl::size, false> bfs;
+	astar_visualized<qpl::size, true> bfs;
+	qpl::f64 steps = 5.0;
+	bool lock = false;
 };
 
 void test() {
