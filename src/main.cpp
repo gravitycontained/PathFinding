@@ -1,34 +1,15 @@
 #include <qpl/qpl.hpp>
 #include <queue>
 
-struct node {
-	qpl::vec2s position;
-	std::shared_ptr<node> parent;
-
-	node() {
-
-	}
-	node(qpl::vec2s position, const std::shared_ptr<node>& parent) {
-		this->position = position;
-		this->parent = parent;
-	}
-	bool operator==(const node& other) const {
-		return this->position == other.position;
-	}
-
-	bool operator<(const node& other) const {
-		return this->position.x < other.position.x || (this->position.x == other.position.x && this->position.y < other.position.y);
-	}
-};
-template<typename T, bool diagonal = false>
+template<bool allow_diagonal, typename T>
 struct bfs_visualized {
-
-	std::queue<std::shared_ptr<node>> queue;
+	std::queue<std::shared_ptr<qpl::bfs_node>> queue;
 	std::unordered_set<qpl::vec2s> visited;
-	std::vector<qpl::vec2s> path;
+	std::shared_ptr<qpl::bfs_node> current_node;
+	bool finished = false;
 
 	constexpr static auto direction = [&]() {
-		if constexpr (diagonal) {
+		if constexpr (allow_diagonal) {
 			return std::array{
 				qpl::vec2is{1, 0}, qpl::vec2is(0, 1), qpl::vec2is(-1, 0), qpl::vec2is(0, -1),
 				qpl::vec2is(1, 1), qpl::vec2is(1, -1), qpl::vec2is(-1, 1), qpl::vec2is(-1, -1) };
@@ -39,20 +20,23 @@ struct bfs_visualized {
 	}();
 
 	void reset() {
-		std::queue<std::shared_ptr<node>> empty;
+		std::queue<std::shared_ptr<qpl::bfs_node>> empty;
 		this->queue.swap(empty);
 		this->visited.clear();
-		this->path.clear();
+		this->finished = false;
 	}
 	void prepare(const std::vector<std::vector<T>>& maze, qpl::vec2s start, qpl::vec2s end) {
-		std::shared_ptr<node> starting_node = std::make_shared<node>(start, nullptr);
+		auto starting_node = std::make_shared<qpl::bfs_node>(start, nullptr);
 		this->queue.push(starting_node);
 		this->visited.insert(start);
 	}
 
-	auto get_path(std::shared_ptr<node>& current_node) const {
+	auto get_path() const {
 		std::vector<qpl::vec2s> path;
-		auto traverse = current_node;
+		if (this->queue.empty()) {
+			return path;
+		}
+		auto traverse = this->current_node;
 		while (traverse) {
 			path.push_back(traverse->position);
 			traverse = traverse->parent;
@@ -61,52 +45,56 @@ struct bfs_visualized {
 		return path;
 	}
 
-	void step(const std::vector<std::vector<T>>& maze, qpl::vec2s start, qpl::vec2s end) {
-		if (this->queue.empty()) {
-			return;
-		}
-		std::shared_ptr<node> current_node = this->queue.front();
-		this->queue.pop();
+	void step(const std::vector<std::vector<T>>& maze, qpl::vec2s start, qpl::vec2s end, qpl::size repeat) {
+		for (qpl::size i = 0u; i < repeat; ++i) {
+			if (this->finished) {
+				return;
+			}
+			if (this->queue.empty()) {
+				return;
+			}
+			this->current_node = this->queue.front();
+			this->queue.pop();
 
-		auto width = qpl::signed_cast(maze[0].size());
-		auto height = qpl::signed_cast(maze.size());
+			auto width = qpl::signed_cast(maze[0].size());
+			auto height = qpl::signed_cast(maze.size());
 
-		if (current_node->position == end) {
-			this->path = this->get_path(current_node);
-			return;
-		}
-		for (auto& dir : this->direction) {
-			auto check = qpl::vec2is(current_node->position) + dir;
+			if (current_node->position == end) {
+				qpl::println("at the end!");
+				this->finished = true;
+				return;
+			}
+			for (auto& dir : this->direction) {
+				auto check = qpl::vec2is(this->current_node->position) + dir;
 
-			if (check.x >= 0 && check.x < width && check.y >= 0 && check.y < height) {
-				bool valid = maze[check.y][check.x] != 1;
-				if (valid) {
-					bool found = false;
-					for (auto& i : this->visited) {
-						if (i == check) {
-							found = true;
-							break;
+				if (check.x >= 0 && check.x < width && check.y >= 0 && check.y < height) {
+					bool valid = maze[check.y][check.x] != 1;
+					if (valid) {
+						bool found = false;
+						for (auto& i : this->visited) {
+							if (i == check) {
+								found = true;
+								break;
+							}
 						}
-					}
-					if (!found) {
-						auto next = std::make_shared<node>(check, current_node);
-						this->queue.push(next);
-						this->visited.insert(check);
+						if (!found) {
+							auto next = std::make_shared<qpl::bfs_node>(check, this->current_node);
+							this->queue.push(next);
+							this->visited.insert(check);
+						}
 					}
 				}
 			}
 		}
-		this->path = this->get_path(current_node);
 	}
 };
-
 
 template<typename T, bool diagonal = false>
 struct astar_visualized {
 
-	std::vector<std::shared_ptr<qpl::astar_node<qpl::size>>> queue;
+	std::vector<std::shared_ptr<qpl::astar_node>> queue;
 	std::unordered_set<qpl::vec2s> visited;
-	std::vector<qpl::vec2s> path;
+	std::shared_ptr<qpl::astar_node> current_node;
 	bool finished = false;
 
 	constexpr static auto direction = [&]() {
@@ -123,18 +111,20 @@ struct astar_visualized {
 	void reset() {
 		this->queue.clear();
 		this->visited.clear();
-		this->path.clear();
 		this->finished = false;
 	}
 	void prepare(const std::vector<std::vector<T>>& maze, qpl::vec2s start, qpl::vec2s end) {
-		std::shared_ptr<qpl::astar_node<qpl::size>> starting_node = std::make_shared<qpl::astar_node<qpl::size>>(start, nullptr);
+		std::shared_ptr<qpl::astar_node> starting_node = std::make_shared<qpl::astar_node>(start, nullptr);
 		this->queue.push_back(starting_node);
 		this->visited.insert(start);
 	}
 
-	auto get_path(std::shared_ptr<qpl::astar_node<qpl::size>>& current_node) const {
+	auto get_path() const {
 		std::vector<qpl::vec2s> path;
-		auto traverse = current_node;
+		if (this->queue.empty()) {
+			return path;
+		}
+		auto traverse = this->current_node;
 		while (traverse) {
 			path.push_back(traverse->position);
 			traverse = traverse->parent;
@@ -150,38 +140,37 @@ struct astar_visualized {
 		if (this->queue.empty()) {
 			return;
 		}
-		std::shared_ptr<qpl::astar_node<qpl::size>> current_node = *queue.begin();
+		this->current_node = *this->queue.begin();
 		qpl::size current_index = 0u;
 		qpl::size ctr = 0u;
 		for (auto& element : queue) {
-			if (element->f < current_node->f) {
-				current_node = element;
+			if (element->f < this->current_node->f) {
+				this->current_node = element;
 				current_index = ctr;
 			}
 			++ctr;
 		}
 
-		visited.insert(current_node->position);
-		queue.erase(queue.begin() + current_index);
+		this->visited.insert(this->current_node->position);
+		this->queue.erase(this->queue.begin() + current_index);
 
 		auto width = qpl::signed_cast(maze[0].size());
 		auto height = qpl::signed_cast(maze.size());
 
-		if (current_node->position == end) {
+		if (this->current_node->position == end) {
 			qpl::println("at the end!");
 			this->finished = true;
-			this->path = this->get_path(current_node);
 			return;
 		}
 
-		std::vector<std::shared_ptr<qpl::astar_node<qpl::size>>> children;
+		std::vector<std::shared_ptr<qpl::astar_node>> children;
 		for (auto& dir : direction) {
-			auto check = qpl::vec2is(current_node->position) + dir;
+			auto check = qpl::vec2is(this->current_node->position) + dir;
 
 			if (check.x >= 0 && check.x < width && check.y >= 0 && check.y < height) {
 				bool valid = maze[check.y][check.x] != 1;
 				if (valid) {
-					bool found = visited.find(check) != visited.cend();
+					bool found = this->visited.find(check) != this->visited.cend();
 
 					bool queue_found = false;
 					for (auto& i : queue) {
@@ -192,7 +181,7 @@ struct astar_visualized {
 					}
 
 					if (!found && !queue_found) {
-						auto next = std::make_shared<qpl::astar_node<qpl::size>>(check, current_node);
+						auto next = std::make_shared<qpl::astar_node>(check, this->current_node);
 						children.push_back(next);
 					}
 				}
@@ -203,169 +192,14 @@ struct astar_visualized {
 			auto x = qpl::signed_cast(child->position.x) - qpl::signed_cast(end.x);
 			auto y = qpl::signed_cast(child->position.y) - qpl::signed_cast(end.y);
 
-			child->g = current_node->g + 1u;
+			child->g = this->current_node->g + 1u;
 			child->h = x * x + y * y;
 			child->f = child->g + child->h;
 
-			queue.push_back(child);
+			this->queue.push_back(child);
 		}
-
-		this->path = this->get_path(current_node);
 	}
 };
-
-
-template<typename T, bool diagonal = true> requires (std::is_integral_v<T>)
-std::vector<qpl::vec2s> breadth_first_search(const std::vector<std::vector<T>>& maze, qpl::vec2s start, qpl::vec2s end) {
-	if (maze.empty()) {
-		return{};
-	}
-	auto width = qpl::signed_cast(maze[0].size());
-	auto height = qpl::signed_cast(maze.size());
-
-	std::queue<std::shared_ptr<node>> queue;
-	std::shared_ptr<node> starting_node = std::make_shared<node>(start, nullptr);
-	queue.push(starting_node);
-
-	std::unordered_set<qpl::vec2s> visited;
-	visited.insert(start);
-
-	constexpr auto direction = [&]() {
-		if constexpr (diagonal) {
-			return std::array{
-				qpl::vec2is{1, 0}, qpl::vec2is(0, 1), qpl::vec2is(-1, 0), qpl::vec2is(0, -1),
-				qpl::vec2is(1, 1), qpl::vec2is(1, -1), qpl::vec2is(-1, 1), qpl::vec2is(-1, -1) };
-		}
-		else {
-			return std::array{ qpl::vec2is{1, 0}, qpl::vec2is(0, 1), qpl::vec2is(-1, 0), qpl::vec2is(0, -1) };
-		}
-	}();
-
-	while (!queue.empty()) {
-		std::shared_ptr<node> current_node = queue.front();
-		queue.pop();
-
-		if (current_node->position == end) {
-			auto traverse = current_node;
-			std::vector<qpl::vec2s> path;
-			while (traverse) {
-				path.push_back(traverse->position);
-				traverse = traverse->parent;
-			}
-			std::ranges::reverse(path);
-			return path;
-		}
-
-		for (auto& dir : direction) {
-			auto check = qpl::vec2is(current_node->position) + dir;
-
-			if (check.x >= 0 && check.x < width && check.y >= 0 && check.y < height) {
-				bool valid = maze[check.y][check.x] != 1;
-				if (valid) {
-					bool found = visited.find(check) != visited.cend();
-					if (!found) {
-						auto next = std::make_shared<node>(check, current_node);
-						queue.push(next);
-						visited.insert(check);
-					}
-				}
-			}
-		}
-	}
-	return {};
-}
-
-/*
-template<typename T, bool diagonal = true> requires (std::is_integral_v<T>)
-std::vector<qpl::vec2s> astar(const std::vector<std::vector<T>>& maze, qpl::vec2s start, qpl::vec2s end) {
-	if (maze.empty()) {
-		return{};
-	}
-	auto width = qpl::signed_cast(maze[0].size());
-	auto height = qpl::signed_cast(maze.size());
-
-	std::vector<std::shared_ptr<astar_node>> queue;
-	std::shared_ptr<astar_node> starting_node = std::make_shared<astar_node>(start, nullptr);
-	queue.push_back(starting_node);
-
-	std::unordered_set<qpl::vec2s> visited;
-
-	constexpr auto direction = [&]() {
-		if constexpr (diagonal) {
-			return std::array{
-				qpl::vec2is{1, 0}, qpl::vec2is(0, 1), qpl::vec2is(-1, 0), qpl::vec2is(0, -1),
-				qpl::vec2is(1, 1), qpl::vec2is(1, -1), qpl::vec2is(-1, 1), qpl::vec2is(-1, -1) };
-		}
-		else {
-			return std::array{ qpl::vec2is{1, 0}, qpl::vec2is(0, 1), qpl::vec2is(-1, 0), qpl::vec2is(0, -1) };
-		}
-	}();
-
-	while (!queue.empty()) {
-		std::shared_ptr<astar_node> current_node = *queue.begin();
-		qpl::size current_index = 0u;
-		qpl::size ctr = 0u;
-		for (auto& element : queue) {
-			if (element->f < current_node->f) {
-				current_node = element;
-				current_index = ctr;
-			}
-			++ctr;
-		}
-
-		visited.insert(current_node->position);
-		queue.erase(queue.begin() + current_index);
-
-		if (current_node->position == end) {
-			auto traverse = current_node;
-			std::vector<qpl::vec2s> path;
-			while (traverse) {
-				path.push_back(traverse->position);
-				traverse = traverse->parent;
-			}
-			std::ranges::reverse(path);
-			return path;
-		}
-
-		std::vector<std::shared_ptr<astar_node>> children;
-		for (auto& dir : direction) {
-			auto check = qpl::vec2is(current_node->position) + dir;
-
-			if (check.x >= 0 && check.x < width && check.y >= 0 && check.y < height) {
-				bool valid = maze[check.y][check.x] != 1;
-				if (valid) {
-					bool found = visited.find(check) != visited.cend();
-
-					bool queue_found = false;
-					for (auto& i : queue) {
-						if (i->position == check) {
-							queue_found = true;
-							break;
-						}
-					}
-
-					if (!found && !queue_found) {
-						auto next = std::make_shared<astar_node>(check, current_node);
-						children.push_back(next);
-					}
-				}
-			}
-		}
-
-		for (auto& child : children) {
-			auto x = qpl::signed_cast(child->position.x) - qpl::signed_cast(end.x);
-			auto y = qpl::signed_cast(child->position.y) - qpl::signed_cast(end.y);
-
-			child->g = current_node->g + 1u;
-			child->h = x * x + y * y;
-			child->f = child->g + child->h;
-
-			queue.push_back(child);
-		}
-	}
-	return {};
-}
-*/
 
 struct maze {
 	std::vector<std::vector<qpl::size>> cells;
@@ -419,23 +253,23 @@ struct maze_graphic {
 			this->create(maze);
 		}
 
-		constexpr auto colors = std::array{ qpl::rgb(140, 140, 140), qpl::rgb(20, 20, 20) };
+		constexpr auto colors = std::array{ qpl::rgb(200, 200, 200), qpl::rgb(50, 50, 50) };
 		for (auto [x, y] : this->dimension.list_possibilities_range()) {
 
 			auto& b = this->before.cells[y][x];
-			auto c = maze.cells[y][x];
-			if (b != c) {
-				b = c;
-				this->set_color(x, y, colors[c]);
+			auto value = maze.cells[y][x];
+			if (b != value) {
+				b = value;
+
+				this->set_color(x, y, colors[value]);
 			}
 		}
 	}
-	void add_path(const std::vector<qpl::vec2s>& path) {
-		this->circles.clear();
+	void add_path(const std::vector<qpl::vec2s>& path, qpl::rgb color) {
 		for (auto& i : path) {
 			qsf::circle circle;
 			circle.set_radius(this->cell_dim.x / 2);
-			circle.set_color(qpl::rgb::red());
+			circle.set_color(color);
 			circle.set_center(this->cell_dim * (i + qpl::vec(0.5, 0.5)));
 			this->circles.add_circle(circle);
 		}
@@ -465,23 +299,42 @@ struct main_state : qsf::base_state {
 		perlin.set_seed_random();
 
 		for (auto [x, y] : this->maze.dimension.list_possibilities_range()) {
-			auto value = perlin.get(qpl::vec(x, y), 0.1, 4);
-			this->maze.cells[y][x] = value < 0.45 ? 1 : 0;
+			auto value = perlin.get(qpl::vec(x, y), 0.05, 3);
+			this->maze.cells[y][x] = value < 0.42 ? 1 : 0;
+		}
+		
+		auto n = 10;
+		for (auto [x, y] : qpl::vec(n, n).list_possibilities_range()) {
+			this->maze.cells[y][x] = 0;
+		}
+		for (auto [x, y] : qpl::vec(n, n).list_possibilities_range()) {
+			auto pos = this->maze_size - 1 - qpl::vec(x, y);
+			this->maze.cells[pos.y][pos.x] = 0;
 		}
 	}
 
-	qpl::vec2s maze_size = qpl::vec(1000, 1000);
+	qpl::vec2s maze_size = qpl::vec(500, 500);
+
+	void solve() {
+
+		auto valid_path = [](qpl::size a) {
+			return a != 1;
+		};
+		auto solve1 = qpl::bfs_path_finding<false>(this->maze.cells, { 0, 0 }, this->maze_size - 1, valid_path);
+		auto solve2 = qpl::bfs_path_finding<true>(this->maze.cells, { 0, 0 }, this->maze_size - 1, valid_path);
+
+		this->maze_graphic.circles.clear();
+		this->maze_graphic.add_path(solve1, qpl::rgb::red().with_alpha(150));
+		this->maze_graphic.add_path(solve2, qpl::rgb::blue().with_alpha(150));
+	}
 
 	void init() override {
 		this->maze.create(maze_size);
 		this->randomize();
 		this->maze_graphic.update(this->maze);
 
-		auto solve = breadth_first_search(this->maze.cells, { 0, 0 }, this->maze_size - 1);
-		qpl::println(solve);
-		this->maze_graphic.add_path(solve);
-
-		this->bfs.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 1);
+		this->solve();
+		this->path_finder_visualized.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 1);
 
 		this->view.set_hitbox(*this);
 	}
@@ -490,30 +343,37 @@ struct main_state : qsf::base_state {
 		this->update(this->view);
 
 		if (this->event().key_holding(sf::Keyboard::Space)) {
-			for (qpl::size i = 0; i < qpl::size_cast(this->steps); ++i) {
-				this->bfs.step(this->maze.cells, { 0, 0 }, this->maze_size - 1);
-			}
-			this->maze_graphic.add_path(this->bfs.path);
+			this->path_finder_visualized.step(this->maze.cells, { 0, 0 }, this->maze_size - 1, qpl::size_cast(this->steps));
+
+			this->maze_graphic.circles.clear();
+			this->maze_graphic.add_path(this->path_finder_visualized.get_path(), qpl::rgb::red());
 
 			if (this->lock) {
-				this->view.set_center(this->bfs.path.back() * maze_graphic::cell_dim);
+				this->view.set_center(this->path_finder_visualized.get_path().back() * maze_graphic::cell_dim);
 			}
 		}
 		if (this->event().key_pressed(sf::Keyboard::A)) {
 			this->steps *= 0.75;
+			qpl::println(qpl::size_cast(this->steps), " steps");
 		}
 		else if (this->event().key_pressed(sf::Keyboard::D)) {
 			this->steps *= (4.0 / 3);
+			qpl::println(qpl::size_cast(this->steps), " steps");
 		}
 		else if (this->event().key_single_pressed(sf::Keyboard::L)) {
 			this->lock = !this->lock;
 		}
+		else if (this->event().key_single_pressed(sf::Keyboard::S)) {
+			this->solve();
+		}
 		else if (this->event().key_single_pressed(sf::Keyboard::R)) {
 			this->randomize();
-			this->bfs.reset();
-			this->bfs.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 1);
+			this->path_finder_visualized.reset();
+			this->path_finder_visualized.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 1);
 			this->maze_graphic.update(this->maze);
-			this->maze_graphic.add_path(this->bfs.path);
+
+			this->maze_graphic.circles.clear();
+			this->maze_graphic.add_path(this->path_finder_visualized.get_path(), qpl::rgb::red());
 		}
 	}
 	void drawing() override {
@@ -523,51 +383,11 @@ struct main_state : qsf::base_state {
 	maze maze;
 	maze_graphic maze_graphic;
 	qsf::view_rectangle view;
-	astar_visualized<qpl::size, true> bfs;
+	//astar_visualized<qpl::size, true> path_finder_visualized;
+	bfs_visualized<true, qpl::size> path_finder_visualized;
 	qpl::f64 steps = 5.0;
 	bool lock = false;
 };
-
-void test() {
-	constexpr auto size = qpl::vec(20, 20);
-	constexpr auto begin = qpl::vec(0, 0);
-	constexpr auto end = size - 1;
-
-	std::vector<std::vector<qpl::size>> maze;
-	maze.resize(size.y);
-	for (auto& i : maze) {
-		i.resize(size.x);
-	}
-
-	auto randomize = [&]() {
-		for (auto& i : maze) {
-			for (auto& i : i) {
-				i = qpl::random_b(0.25) ? 1 : 0;
-			}
-		}
-	};
-
-	qpl::clock clock;
-	for (qpl::size i = 0u;; ++i) {
-		randomize();
-
-		qpl::begin_benchmark("bfs");
-		auto solve = breadth_first_search(maze, begin, end);
-		qpl::begin_benchmark_end_previous("a*");
-		auto astar_solve = qpl::astar(maze, begin, end);
-		qpl::end_benchmark();
-
-		if (solve != astar_solve) {
-			qpl::println("nequal: ", solve, " vs ", astar_solve);
-		}
-
-		if (qpl::get_time_signal(0.5)) {
-			qpl::println(qpl::big_number_string(i / clock.elapsed_f()), " / sec");
-			qpl::print_benchmark();
-		}
-	}
-
-}
 
 int main() try {
 
