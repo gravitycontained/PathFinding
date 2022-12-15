@@ -303,7 +303,7 @@ struct main_state : qsf::base_state {
 			this->maze.cells[y][x] = value < 0.45 ? 1 : 0;
 		}
 		
-		auto n = 10;
+		auto n = 30;
 		for (auto [x, y] : qpl::vec(n, n).list_possibilities_range()) {
 			this->maze.cells[y][x] = 0;
 		}
@@ -313,15 +313,30 @@ struct main_state : qsf::base_state {
 		}
 	}
 
-	qpl::vec2s maze_size = qpl::vec(500, 500);
+	qpl::vec2s maze_size = qpl::vec(750, 750);
+	qpl::f64 bfs_sum = 0.0;
+	qpl::f64 astar_sum = 0.0;
 
 	void solve() {
 
 		auto valid_path = [](qpl::size a) {
 			return a != 1;
 		};
-		auto solve1 = qpl::astar_path_finding<true>(this->maze.cells, { 0, 0 }, this->maze_size - 1, valid_path);
-		auto solve2 = qpl::bfs_path_finding<true>(this->maze.cells, { 0, 0 }, this->maze_size - 1, valid_path);
+
+		qpl::clock clock;
+		auto solve1 = qpl::bfs_path_finding<true>(this->maze.cells, { 0, 0 }, this->maze_size - 250, valid_path);
+		if (solve1.empty()) {
+			qpl::println("no path found");
+			return;
+		}
+		this->bfs_sum += clock.elapsed_f();
+
+		clock.reset();
+		auto solve2 = qpl::astar_path_finding<true>(this->maze.cells, { 0, 0 }, this->maze_size - 250, valid_path);
+		this->astar_sum += clock.elapsed_f();
+
+		qpl::println("BFS ", qpl::secs(this->bfs_sum).string(), "\nA* ", qpl::secs(this->astar_sum).string());
+		qpl::println();
 
 		this->maze_graphic.circles.clear();
 		this->maze_graphic.add_path(solve1, qpl::rgb::red().with_alpha(150));
@@ -334,7 +349,7 @@ struct main_state : qsf::base_state {
 		this->maze_graphic.update(this->maze);
 
 		this->solve();
-		this->path_finder_visualized.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 1);
+		this->path_finder_visualized.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 250);
 
 		this->view.set_hitbox(*this);
 	}
@@ -343,7 +358,7 @@ struct main_state : qsf::base_state {
 		this->update(this->view);
 
 		if (this->event().key_holding(sf::Keyboard::Space)) {
-			this->path_finder_visualized.step(this->maze.cells, { 0, 0 }, this->maze_size - 1, qpl::size_cast(this->steps));
+			this->path_finder_visualized.step(this->maze.cells, { 0, 0 }, this->maze_size - 250, qpl::size_cast(this->steps));
 
 			this->maze_graphic.circles.clear();
 			this->maze_graphic.add_path(this->path_finder_visualized.get_path(), qpl::rgb::red());
@@ -369,7 +384,7 @@ struct main_state : qsf::base_state {
 		else if (this->event().key_single_pressed(sf::Keyboard::R)) {
 			this->randomize();
 			this->path_finder_visualized.reset();
-			this->path_finder_visualized.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 1);
+			this->path_finder_visualized.prepare(this->maze.cells, { 0, 0 }, this->maze_size - 250);
 			this->maze_graphic.update(this->maze);
 
 			this->maze_graphic.circles.clear();
