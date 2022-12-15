@@ -220,7 +220,7 @@ struct maze {
 
 struct maze_graphic {
 	qsf::vertex_array va;
-	qsf::circles circles;
+	qsf::rectangles circles;
 	maze before;
 	qpl::vec2s dimension;
 	constexpr static auto cell_dim = qpl::vec(25, 25);
@@ -267,11 +267,11 @@ struct maze_graphic {
 	}
 	void add_path(const std::vector<qpl::vec2s>& path, qpl::rgb color) {
 		for (auto& i : path) {
-			qsf::circle circle;
-			circle.set_radius(this->cell_dim.x / 2);
-			circle.set_color(color);
-			circle.set_center(this->cell_dim * (i + qpl::vec(0.5, 0.5)));
-			this->circles.add_circle(circle);
+			qsf::rectangle rect;
+			rect.set_dimension(this->cell_dim);
+			rect.set_color(color);
+			rect.set_position(this->cell_dim * i);
+			this->circles.add(rect);
 		}
 	}
 
@@ -299,8 +299,8 @@ struct main_state : qsf::base_state {
 		perlin.set_seed_random();
 
 		for (auto [x, y] : this->maze.dimension.list_possibilities_range()) {
-			auto value = perlin.get(qpl::vec(x, y), 0.05, 3);
-			this->maze.cells[y][x] = value < 0.42 ? 1 : 0;
+			auto value = perlin.get(qpl::vec(x, y), 0.03, 2);
+			this->maze.cells[y][x] = value < 0.45 ? 1 : 0;
 		}
 		
 		auto n = 10;
@@ -320,7 +320,7 @@ struct main_state : qsf::base_state {
 		auto valid_path = [](qpl::size a) {
 			return a != 1;
 		};
-		auto solve1 = qpl::bfs_path_finding<false>(this->maze.cells, { 0, 0 }, this->maze_size - 1, valid_path);
+		auto solve1 = qpl::astar_path_finding<true>(this->maze.cells, { 0, 0 }, this->maze_size - 1, valid_path);
 		auto solve2 = qpl::bfs_path_finding<true>(this->maze.cells, { 0, 0 }, this->maze_size - 1, valid_path);
 
 		this->maze_graphic.circles.clear();
